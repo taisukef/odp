@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>年齢別人口テーブル（総務省統計局オープンデータより）</title>
+<meta name="viewport" content="width=device-width, user-scalable=no">
+<link rel="apple-touch-icon" href="http://fukuno.jig.jp/app/odp/popstat.jpg"/>
+<meta property="og:image" content="http://fukuno.jig.jp/app/odp/popstat.jpg">
+<script src="fukuno.js"></script>
+<script src="odp.js"></script>
+<script>"use strict";
+
+var showTable = function(data) {
+	var c = get("tblc");
+	clear(c);
+	var tbl = create("table");
+	var tr = create("tr");
+	tbl.appendChild(tr);
+	var th = create("th");
+	th.textContent = "市区町村名";
+	tr.appendChild(th);
+	for (var i = 0; i <= 100; i++) {
+		th = create("th");
+		th.textContent = i;
+		tr.appendChild(th);
+	}
+	data.sort(function(a, b) { // 0歳児多い順
+		return b[1] - a[1];
+	});
+	
+	for (var i = 0; i < data.length; i++) {
+		tr = create("tr");
+		tbl.appendChild(tr);
+		var d = data[i];
+		
+		var max = 0;
+		var min = 1000000;
+		for (var j = 1; j < d.length; j++) {
+			if (d[j] > max)
+				max = d[j];
+			if (d[j] < min)
+				min = d[j];
+		}
+		
+		for (var j = 0; j < d.length; j++) {
+			var td = create("td");
+			td.textContent = d[j];
+			if (d[j] >= max * .8)
+				td.style.backgroundColor = "#fdd";
+			if (d[j] == max)
+				td.style.backgroundColor = "#f88";
+			if (d[j] <= min * 1.2)
+				td.style.backgroundColor = "#ddf";
+			if (d[j] == min)
+				td.style.backgroundColor = "#88f";
+			tr.appendChild(td);
+		}
+	}
+	c.appendChild(tbl);
+};
+
+var popStat = function(pref) {
+	var c = get("tblc");
+	clear(c);
+	c.textContent = "loading...";
+
+//alert(pref);
+	var graph = pref == "福井県" ? "<http://odp.jig.jp/rdf/jp/go/soumu/stat/392>" : "?g";
+	var year = 2010;
+	var q = "select ?city ?age ?num { graph " + graph + " {" +
+"?s <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>	<http://odp.jig.jp/odp/1.0#PopulationStatistics>." +
+"?s <http://odp.jig.jp/odp/1.0#refYear> \"" + year + "\"^^<http://www.w3.org/2001/XMLSchema#gYear>." +
+"?s <http://odp.jig.jp/odp/1.0#population> ?pop." +
+"?pop <http://www.w3.org/1999/02/22-rdf-syntax-ns#value> ?num." +
+"?s <http://odp.jig.jp/odp/1.0#refAge> ?rage." +
+"?rage <http://odp.jig.jp/odp/1.0#minimum> ?age." +
+"?s <http://odp.jig.jp/odp/1.0#refArea> ?area." +
+"?area <http://imi.ipa.go.jp/ns/core/rdf#住所> ?ad." +
+"?ad <http://imi.ipa.go.jp/ns/core/rdf#都道府県> ?pref." +
+"?ad <http://imi.ipa.go.jp/ns/core/rdf#市区町村> ?city." +
+"filter regex(str(?pref), str(\"" + pref + "\"))" +
+"}} order by ?city ?age";
+	querySPARQL(q, function(item) {
+		var data = toJSON(item);
+//		dump(data);
+		var conv = function(data) {
+			var res = [];
+			var line = null;
+			var bkn = null;
+			for (var i = 0; i < data.length; i++) {
+				var d = data[i];
+				if (d.city != bkn) {
+					line = [];
+					res.push(line);
+					bkn = d.city;
+					line[0] = d.city;
+				}
+				line[parseInt(d.age) + 1] = parseInt(d.num);
+			}
+			return res;
+		};
+		data = conv(data);
+//		dump(data);
+		showTable(data);
+	});
+};
+var PREF = [ "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県", "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県", "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県", "岐阜県", "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県", "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県", "山口県", "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県" ];
+
+window.onload = function() {
+	var def = "福井県";
+	for (var i = 0; i < PREF.length; i++) {
+		var opt = create("option");
+		opt.textContent = opt.value = PREF[i];
+		get("sel").appendChild(opt);
+		if (PREF[i] == def)
+			opt.selected = true;
+	}
+	get("sel").onchange = function() {
+		popStat(this.value);
+	};
+	popStat(def);
+};
+</script>
+<style>
+body {
+	margin: 0px;
+	text-align: center;
+	-webkit-text-size-adjust: none; /* for iPhone */
+}
+table {
+	border-collapse: collapse;
+}
+td, th {
+	border: 1px solid gray;
+}
+td:first-child {
+	white-space: nowrap;
+}
+th:first-child {
+	white-space: nowrap;
+}
+#src {
+	margin: 32px;
+}
+#debug {
+	text-align: left;
+}
+</style>
+</head>
+<body>
+
+<h1>年齢別人口テーブル（総務省統計局オープンデータより）</h1>
+<select id="sel"></select>
+<div id="tblc"></div>
+※数値は2010年現在、0歳児の多い順（郡などが含まれるので、合計値は都道府県値と一致しない）
+
+<div id="src">
+DATA CC BY <a href=http://sparql.odp.jig.jp/ target=_blank>odp</a><br>
+APP CC BY <a href=http://fukuno.jig.jp/1098>fukuno.jig.jp 一日一創</a><br>
+</div>
+</body>
+</html>

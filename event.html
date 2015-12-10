@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<!-- (c)taisukef CC BY  http://fukuno.jig.jp/ -->
+<html>
+<head>
+<meta charset='utf-8'/>
+<title>みんなのイベント（地区別）</title>
+<meta property="og:image" content="http://fukuno.jig.jp/app/odp/event.jpg">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, target-densitydpi=medium-dpi">
+<meta name="format-detection" content="telephone=no">
+<script src=fukuno.js></script>
+<script>
+
+var getCivicEvents = function(callback) {
+	var query = f2s(function() {/*
+		select ?s ?name ?desc ?url ?location ?lat ?lng ?start ?end ?note {
+			?s <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>	<http://purl.org/jrrk#CivicEvent>;
+			<http://www.w3.org/2000/01/rdf-schema#label> ?name;
+			<http://schema.org/description> ?desc;
+			<http://schema.org/url> ?url;
+			<http://purl.org/jrrk#location> ?location;
+			<http://www.w3.org/2003/01/geo/wgs84_pos#lat> ?lat;
+			<http://www.w3.org/2003/01/geo/wgs84_pos#long> ?lng;
+			<http://www.w3.org/2002/12/cal/icaltzd#dtstart> ?start;
+			<http://www.w3.org/2002/12/cal/icaltzd#dtend> ?end;
+			<http://purl.org/jrrk#scheduleNote> ?note.
+		}
+	*/});
+//	query = query.replace("$GRAPH$", graph);
+	
+	queryODP(query, function(data) {
+		callback(data);
+	});
+};
+
+window.onload = function() {
+	var shops;
+	getCivicEvents(function(data) {
+//		dump(data);
+		
+		var getArea = function(item) {
+			var s = item.name.value;
+			var n = s.indexOf("地区");
+			if (n < 0)
+				return "-";
+			return s.substring(0, n + 2);
+		};
+		
+		var sel1 = create("select");
+		sels.appendChild(sel1);
+		var areas = {};
+		
+		for (var i = 0; i < data.length; i++) {
+			var item = data[i];
+			var area = getArea(item);
+			areas[area] = area;
+		}
+		var opt = create("option");
+		opt.value = ""
+		opt.textContent = "ぜんぶの地区";
+		sel1.appendChild(opt);
+		for (var area in areas) {
+			var opt = create("option");
+			opt.value = area;
+			opt.textContent = area;
+			sel1.appendChild(opt);
+		}
+		/*
+		var sel2 = create("select");
+		var sels = get("sels");
+		sels.appendChild(sel2);
+		var types = {};
+		var opt = create("option");
+		opt.value = "";
+		opt.textContent = "すべて";
+		sel1.appendChild(opt);
+		for (var type in types) {
+			var opt = create("option");
+			opt.value = type;
+			opt.textContent = type;
+			sel1.appendChild(opt);
+		}
+		*/
+		var showShops = function() {
+			var shops = get("shops");
+			clear(shops);
+			
+//			var type = sel1.value;
+			var area = sel1.value;
+//			console.log(type + " "+ city);
+			for (var i = 0; i < data.length; i++) {
+				var item = data[i];
+				
+//				if (type.length > 0 && shop[0] != type) {
+//					continue;
+//				}
+//				var c = shop[2].substring(0, shop[2].indexOf(' '));
+				var a = getArea(item);
+				if (area.length != 0 && a != area) {
+					continue;
+				}
+				var div = create("div");
+				div.className = "item";
+				var s = "";
+				s += "<span class=name><a href=" + item.url.value + " target=_blank>" + item.name.value + "</a></span>";
+				s += "<span class=item2>";
+				s += "<span class=dt>" + item.start.value + " " + item.note.value + (item.start.value == item.end.value ? "" :　" - " + item.end.value) + "</span>";
+				s += "<span class=location><a href=" + getMapLink(item.lat.value, item.lng.value) + " target=_blank>" + item.location.value + "</a></span>";
+//				s += "<span class=address><a href=" + getMapLink(shop[5], shop[6]) + ">" + shop[4] + "</a></span>";
+//				s += "<span class=tel><a href=tel:" + shop[7] + ">" + shop[7] + "</a></span>";
+				s += "<span class=type>" + item.desc.value + "</span>";
+				s += "</span>";
+
+				div.innerHTML = s;
+				shops.appendChild(div);
+			}
+		};
+		sel1.onchange = showShops;
+//		sel2.onchange = showShops;
+		showShops();
+	});
+};
+
+// util
+var getMapLink = function(lat, lng) {
+	return "http://maps.google.com/?ll=" + lat + "," + lng;
+};
+var getSearchLink = function(s) {
+	return "http://search.yahoo.co.jp/search?tt=c&ei=UTF-8&fr=sfp_as&aq=-1&oq=&p=" + encodeURIComponent(s) + "&meta=vc%3D";
+};
+var jsonp = function(url) {
+	var head = document.getElementsByTagName("head")[0];
+   	var script = document.createElement("script");
+    script.setAttribute("src", url);
+    script.setAttribute("type", "text/javascript");
+//	script.setAttribute("id", 'jsonp');
+	head.appendChild(script);
+};
+var convertCSVtoArray = function(s) {
+	var lines = s.split("\n");
+	var res = [];
+	for (var i = 0; i < lines.length; i++) {
+		var ar = lines[i].split(",");
+		res.push(ar);
+	}
+	return res;
+};
+var getJSON = function(url, callback) {
+	if (url.endsWith(".csv")) {
+		getRawJSON(url, "SJIS", function(csv) {
+			callback(convertCSVtoArray(csv));
+		});
+	} else if (url.endsWith(".xml")) {
+		getXMLJSON(url, callback);
+	} else {
+		alert("not support type : " + url);
+	}
+};
+var getXMLJSON = function(url, callback) {
+	var host = "sabae.cc";
+	var cnv = "xml2json";
+	var base = "http://" + host + "/proxy/ITqT5WkhCf2yn1s9?cnv=" + cnv;
+	var url2 = base + "&cache=no&callback=" + getCallbackMethod(callback) + "&url=" + encodeURI(url);
+	jsonp(url2);
+};
+var getRawJSON = function(url, srcenc, callback) {
+	var host = "sabae.cc";
+//	host = "localhost:8080";
+	var cache = "no";
+	var base = "http://" + host + "/proxy/ITqT5WkhCf2yn1s9?";
+	var url2 = base + "cnv=json&srcenc=" + srcenc + "&cache="  + cache + "&callback=" + getCallbackMethod(callback) + "&url=" + encodeURIComponent(url);
+	jsonp(url2);
+};
+var queryODP = function(query, callback) {
+	var url = "http://sparql.odp.jig.jp/api/v1/sparql?query=" + encodeURIComponent(query) + "&output=json";
+	url += "&callback=" + getCallbackMethod(function(data) {
+		callback(data.results.bindings);
+	});
+	jsonp(url);
+};
+
+</script>
+<style>
+body {
+	margin: 0;
+}
+h1, h2 {
+	padding: 0px 10px;
+}
+.item {
+	margin: 1em;
+	padding: 1em 1em;
+	border: 1px solid #ddd;
+	box-shadow: 10px 10px 10px rgba(0,0,0,0.4);
+}
+.item:last-child {
+	border-bottom: 1px solid gray;
+}
+.item2 {
+	padding: 1em 1em;
+	border: 1px solid #ddd;
+	box-shadow: 5px 5px 5px rgba(0,0,0,0.4);
+	border-radius: 30px;
+	display: block;
+	margin-top: 1em;
+	background-color: #eee;
+}
+.item2 > span {
+	display: block;
+}
+.name {
+	font-size: 150%;
+	display: block;
+}
+.name a {
+	color: #f30;
+}
+.name:before {
+	font-size: 12px;
+	margin-right: .5em;
+	color: #888;
+}
+.location:before {
+	content: "場所:";
+	font-size: 12px;
+	margin-right: .5em;
+	color: #888;
+}
+.location a {
+	color: gray !important;
+}
+.dt:before {
+	content: "日時:";
+	font-size: 12px;
+	margin-right: .5em;
+	color: #888;
+}
+.tel:before {
+	content: "営業所電話番号:";
+	font-size: 12px;
+	margin-right: .5em;
+	color: #888;
+}
+.tel a {
+	color: #000;
+}
+
+.credit {
+	margin-top: 1em;
+	padding: 0.5em;
+}
+.credit a {
+	color: gray !important;
+}
+#sels {
+	margin: 0 1em;
+}
+h1, #sels {
+	text-align: center;
+}
+</style>
+</head>
+<body>
+
+<h1>みんなのイベント（地区別）</h1>
+
+<div id=sels></div>
+<div id=shops>
+<!--
+<div class=shop>
+	<span class=name><a href=http://search.yahoo.co.jp/search?tt=c&ei=UTF-8&fr=sfp_as&aq=-1&oq=&p=%28%E6%A0%AA%29%E3%80%80%E3%83%90%E3%83%B3%E3%83%8E%E3%82%A6%E6%B0%B4%E7%94%A3%20%E9%9D%99%E5%B2%A1%E5%B8%82&meta=vc%3D target=_blank>(株)　バンノウ水産</a></span>
+	<span class=address>静岡市内一円</span>
+	<span class=tel><a href=tel:054-337-1177>054-337-1177</a></span>
+	<span class=type>飲食店営業（露店）</span>
+	<span class=contact>株式会社　バンノウ水産</span>
+</div>
+-->
+</div>
+
+<div class=credit>
+DATA: CC BY <a href=http://sparql.odp.jig.jp/ target=_blank>odp SPARQL Endpoint</a><br>
+APP: CC BY <a href=http://fukuno.jig.jp/1233 target=_blank>福野泰介の一日一創「みんなのイベント（地区別）」</a><br>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>県庁所在地、年齢別人口テーブル（総務省統計局オープンデータより）</title>
+<meta name="viewport" content="width=device-width, user-scalable=no">
+<link rel="apple-touch-icon" href="http://fukuno.jig.jp/app/odp/popstat-capital.jpg"/>
+<meta property="og:image" content="http://fukuno.jig.jp/app/odp/popstat-capital.jpg">
+<script src="fukuno.js"></script>
+<script src="odp.js"></script>
+<script>"use strict";
+
+var pdata = [];
+
+var addTable = function(data) {
+	for (var i = 0; i < data.length; i++)
+		pdata.push(data[i]);
+	showTable(pdata);
+};
+var showTable = function(data) {
+	var c = get("tblc");
+	clear(c);
+	var tbl = create("table");
+	var tr = create("tr");
+	tbl.appendChild(tr);
+	var th = create("th");
+	th.textContent = "市区町村名";
+	tr.appendChild(th);
+	for (var i = 0; i <= 100; i++) {
+		th = create("th");
+		th.textContent = i;
+		tr.appendChild(th);
+	}
+	data.sort(function(a, b) { // 0歳児多い順
+		return b[1] - a[1];
+	});
+	
+	for (var i = 0; i < data.length; i++) {
+		tr = create("tr");
+		tbl.appendChild(tr);
+		var d = data[i];
+		
+		var max = 0;
+		var min = 1000000;
+		for (var j = 1; j < d.length; j++) {
+			if (d[j] > max)
+				max = d[j];
+			if (d[j] < min)
+				min = d[j];
+		}
+		
+		for (var j = 0; j < d.length; j++) {
+			var td = create("td");
+			td.textContent = d[j];
+			if (d[j] >= max * .8)
+				td.style.backgroundColor = "#fdd";
+			if (d[j] == max)
+				td.style.backgroundColor = "#f88";
+			if (d[j] <= min * 1.2)
+				td.style.backgroundColor = "#ddf";
+			if (d[j] == min)
+				td.style.backgroundColor = "#88f";
+			tr.appendChild(td);
+		}
+	}
+	c.appendChild(tbl);
+};
+
+var popStatCity = function(year, pref, city, callback) {
+	var q = f2s(function() {/*
+select ?g { graph ?g {
+?s <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>	<http://odp.jig.jp/odp/1.0#PopulationStatistics>.
+
+?s <http://odp.jig.jp/odp/1.0#refYear> "%year%"^^<http://www.w3.org/2001/XMLSchema#gYear>.
+
+?s <http://odp.jig.jp/odp/1.0#refAge> ?rage.
+?rage <http://odp.jig.jp/odp/1.0#minimum> 0.
+
+?s <http://odp.jig.jp/odp/1.0#refArea> ?area.
+?area <http://imi.ipa.go.jp/ns/core/rdf#住所> ?ad.
+?ad <http://imi.ipa.go.jp/ns/core/rdf#都道府県> ?pref.
+?ad <http://imi.ipa.go.jp/ns/core/rdf#市区町村> ?city.
+filter (str(?pref) = str("%pref%"))
+filter (str(?city) = str("%city%"))
+}} order by ?city ?age
+*/ });
+	q = q.replace("%year%", year);
+	q = q.replace("%pref%", pref);
+	q = q.replace("%city%", city);
+//	alert(q);
+	querySPARQL(q, function(item) {
+		var data = toJSON(item);
+//		dump(data);
+		var graph = data[0].g;
+		
+		var q = f2s(function() {/*
+select ?s ?city ?age ?num ?g { graph <%graph%> {
+?s <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>	<http://odp.jig.jp/odp/1.0#PopulationStatistics>.
+
+?s <http://odp.jig.jp/odp/1.0#refYear> "%year%"^^<http://www.w3.org/2001/XMLSchema#gYear>.
+
+?s <http://odp.jig.jp/odp/1.0#population> ?pop.
+?pop <http://www.w3.org/1999/02/22-rdf-syntax-ns#value> ?num.
+
+?s <http://odp.jig.jp/odp/1.0#refAge> ?rage.
+?rage <http://odp.jig.jp/odp/1.0#minimum> ?age.
+
+?s <http://odp.jig.jp/odp/1.0#refArea> ?area.
+?area <http://imi.ipa.go.jp/ns/core/rdf#住所> ?ad.
+?ad <http://imi.ipa.go.jp/ns/core/rdf#都道府県> ?pref.
+?ad <http://imi.ipa.go.jp/ns/core/rdf#市区町村> ?city.
+
+filter (str(?pref) = str("%pref%"))
+filter (str(?city) = str("%city%"))
+}} order by ?city ?age
+		*/ });
+
+		q = q.replace("%graph%", graph);
+		q = q.replace("%year%", year);
+		q = q.replace("%pref%", pref);
+		q = q.replace("%city%", city);
+		querySPARQL(q, function(item) {
+			var data = toJSON(item);
+			var conv = function(data) {
+				var res = [];
+				var line = null;
+				var bkn = null;
+				for (var i = 0; i < data.length; i++) {
+					var d = data[i];
+					if (d.city != bkn) {
+						line = [];
+						res.push(line);
+						bkn = d.city;
+						line[0] = d.city;
+					}
+					line[parseInt(d.age) + 1] = parseInt(d.num);
+				}
+				return res;
+			};
+			data = conv(data);
+//			dump(data);
+			addTable(data);
+			if (callback)
+				callback();
+		});
+		
+//		dump(data);
+//		showTable(data);
+		
+	});
+};
+
+var PREF = [ "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県", "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県", "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県", "岐阜県", "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県", "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県", "山口県", "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県" ];
+var CAPITAL_JP = [ "札幌市", "青森市", "盛岡市", "仙台市", "秋田市", "山形市", "福島市", "水戸市", "宇都宮市", "前橋市", "さいたま市", "千葉市", "新宿区"/*東京?*/, "横浜市", "新潟市", "富山市", "金沢市", "福井市", "甲府市", "長野市", "岐阜市", "静岡市", "名古屋市", "津市", "大津市", "京都市", "大阪市", "神戸市", "奈良市", "和歌山市", "鳥取市", "松江市", "岡山市", "広島市", "山口市", "徳島市", "高松市", "松山市", "高知市", "福岡市", "佐賀市", "長崎市", "熊本市", "大分市", "宮崎市", "鹿児島市", "那覇市" ];
+
+window.onload = function() {
+	var n = -1;
+	var f = function() {
+		n++;
+		if (n == PREF.length)
+			return;
+		popStatCity(2010, PREF[n], CAPITAL_JP[n], f);
+	};
+	f();
+};
+</script>
+<style>
+body {
+	margin: 0px;
+	text-align: center;
+	-webkit-text-size-adjust: none; /* for iPhone */
+}
+table {
+	border-collapse: collapse;
+}
+td, th {
+	border: 1px solid gray;
+}
+td:first-child {
+	white-space: nowrap;
+}
+th:first-child {
+	white-space: nowrap;
+}
+#src {
+	margin: 32px;
+}
+#debug {
+	text-align: left;
+}
+</style>
+</head>
+<body>
+
+<h1>県庁所在地、年齢別人口テーブル（総務省統計局オープンデータより）</h1>
+<div id="tblc"></div>
+※数値は2010年現在、0歳児の多い順（東京都の県庁所在地は、新宿区としている）
+
+<div id="src">
+DATA CC BY <a href=http://sparql.odp.jig.jp/ target=_blank>odp</a><br>
+APP CC BY <a href=http://fukuno.jig.jp/1128>fukuno.jig.jp 一日一創</a><br>
+</div>
+</body>
+</html>

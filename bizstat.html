@@ -1,0 +1,547 @@
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>県別いけてる事業マップ</title>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+<link rel="apple-touch-icon" href="http://fukuno.jig.jp/app/odp/bizstat.png"/>
+<meta property="og:image" content="http://fukuno.jig.jp/app/odp/bizstat.png">
+<meta name="format-detection" content="telephone=no"/>
+<head>
+<script src=fukuno.js></script>
+<script>"use strict";
+
+// http://www.stat.go.jp/index/seido/sangyo/19-3.htm
+var BIZTYPE = [
+	"農業，林業", // A
+	"漁業", // B
+	"鉱業，採石業，砂利採取業", // C
+	"建設業", // D
+	"製造業", // E
+	"電気・ガス・熱供給・水道業", // F
+	"情報通信業", // G
+	"運輸業，郵便業", // H
+	"卸売業，小売業", // I
+	"金融業，保険業", // J
+	"不動産業，物品賃貸業", // K
+	"学術研究，専門・技術サービス業", // L
+	"宿泊業，飲食サービス業", // M
+	"生活関連サービス業，娯楽業", // N
+	"教育，学習支援業", // O
+	"医療，福祉", // P
+	"複合サービス事業", // Q
+	"サービス業（他に分類されないもの）", // R
+	"公務（他に分類されるも:を除く）", // S
+//	"分類不能の産業", // T
+];
+var getBizType = function(type) {
+	if (type == "A-S")
+		return "全業種";
+	return BIZTYPE[type.charCodeAt(0) - "A".charCodeAt(0)];
+};
+
+var getBizStat = function(callback) {
+	var query = f2s(function() {/*
+		select ?s ?num ?pref ?type {
+			?s <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>	<http://odp.jig.jp/odp/1.0#OfficeCensus>.
+			?s <http://odp.jig.jp/odp/1.0#refYear> "2009"^^<http://www.w3.org/2001/XMLSchema#gYear>.
+			
+			?s <http://odp.jig.jp/odp/1.0#numberOfOffice> ?num.
+			
+			?s <http://odp.jig.jp/odp/1.0#refArea> ?area.
+			?area <http://imi.ipa.go.jp/ns/core/rdf#住所> ?ad.
+			?ad <http://imi.ipa.go.jp/ns/core/rdf#都道府県> ?pref.
+			optional {
+				?ad <http://imi.ipa.go.jp/ns/core/rdf#市区町村> ?city.
+			}
+			FILTER (!BOUND(?city) || ?pref = ?city)
+			
+			?s <http://odp.jig.jp/odp/1.0#refCategory> ?b1.
+			?b1 <http://purl.org/dc/terms/identifier> ?type.
+		} order by desc(?num)
+	*/});
+	
+	var url = "http://sparql.odp.jig.jp/api/v1/sparql?query=" + encodeURIComponent(query) + "&output=json";
+	url += "&callback=" + getCallbackMethod(function(data) {
+		callback(data.results.bindings);
+	});
+	jsonp(url);
+};
+
+var queryODP = function(query, callback) {
+	var url = "http://sparql.odp.jig.jp/api/v1/sparql?query=" + encodeURIComponent(query) + "&output=json";
+	url += "&callback=" + getCallbackMethod(function(data) {
+		callback(data.results.bindings);
+	});
+	jsonp(url);
+};
+
+var getPopLatestYear = function(pref, callback/* year, graph */) {
+	var query = f2s(function() {/*
+		select distinct ?year ?g { graph ?g {
+			?s <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://odp.jig.jp/odp/1.0#PopulationStatistics>.
+			
+			?s <http://odp.jig.jp/odp/1.0#refYear> ?year.
+			
+			?s <http://odp.jig.jp/odp/1.0#refAge> ?age.
+			?age <http://odp.jig.jp/odp/1.0#minimum> 0.
+			
+			?s <http://odp.jig.jp/odp/1.0#refArea> ?area.
+			?area <http://imi.ipa.go.jp/ns/core/rdf#住所> ?ad.
+			?ad <http://imi.ipa.go.jp/ns/core/rdf#都道府県> ?pref.
+			optional {
+			?ad <http://imi.ipa.go.jp/ns/core/rdf#市区町村> ?local.
+			}
+			filter(!BOUND(?local))
+			filter(?pref = "$PREF$"@ja)
+		}} order by desc(?year) limit 1
+	*/});
+	query = query.replace("$PREF$", pref);
+	
+	queryODP(query, function(data) {
+//		dump(data);
+		if (data.length > 0)
+			callback(data[0].year.value, data[0].g.value);
+	});
+};
+var getDetailGraph = function(graph, callback/* title, creator, url */) {
+	var query = f2s(function() {/*
+		select ?title ?creator ?url {
+			<$GRAPH$> <http://purl.org/dc/elements/1.1/creator> ?creator;
+			<http://purl.org/dc/elements/1.1/title> ?title;
+			<http://purl.org/dc/terms/references> ?url.
+		}
+	*/});
+	query = query.replace("$GRAPH$", graph);
+	
+	queryODP(query, function(data) {
+//		dump(data);
+
+		if (data.length > 0) {
+			var d = data[0];
+			callback(d.title.value, d.creator.value, d.url.value);
+		}
+	});
+};
+
+var getPop = function(pref, year, graph, callback/* array */) {
+//		?age <http://odp.jig.jp/odp/1.0#maximum> ?max.
+	var query = f2s(function() {/*
+		select ?min ?numf ?numm { graph <$GRAPH$> {
+		?s <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://odp.jig.jp/odp/1.0#PopulationStatistics>.
+		
+		?s <http://odp.jig.jp/odp/1.0#refYear> "$YEAR$"^^<http://www.w3.org/2001/XMLSchema#gYear>.
+		
+		?s <http://odp.jig.jp/odp/1.0#population> ?pop.
+		?pop <http://odp.jig.jp/odp/1.0#female> ?numf.
+		?pop <http://odp.jig.jp/odp/1.0#male> ?numm.
+		?s <http://odp.jig.jp/odp/1.0#refAge> ?age.
+		?age <http://odp.jig.jp/odp/1.0#minimum> ?min.
+		
+		?s <http://odp.jig.jp/odp/1.0#refArea> ?area.
+		?area <http://imi.ipa.go.jp/ns/core/rdf#住所> ?ad.
+		?ad <http://imi.ipa.go.jp/ns/core/rdf#都道府県> ?pref.
+		optional {
+		?ad <http://imi.ipa.go.jp/ns/core/rdf#市区町村> ?local.
+		}
+		filter(!bound(?local))
+		filter(?pref = "$PREF$"@ja)
+		}} order by ?min
+	*/});
+	query = query.replace("$GRAPH$", graph);
+	query = query.replace("$PREF$", pref);
+	query = query.replace("$YEAR$", year);
+	
+	queryODP(query, function(data) {
+//		dump(data);
+		data = sparqlres2csv(data);
+//		dump(data);
+		callback(data);
+	});
+};
+
+var sparqlres2csv = function(data) {
+	var res = [];
+	var d = data[0];
+	var name = [];
+	for (var n in d) {
+		name.push(n);
+	}
+	res.push(name);
+	for (var i = 0; i < data.length; i++) {
+		var a = [];
+		d = data[i];
+		for (var j = 0; j < name.length; j++) {
+			a.push(d[name[j]].value);
+		}
+		res.push(a);
+	}
+	return res;
+};
+
+var graph;
+
+window.onload = function() {
+	var url = "http://odp.jig.jp/rdf/jp/go/soumu/stat/393";
+	getDetailGraph(url, function(title, creator, url) {
+		graph = [ title, creator, url ];
+		getBizStat(function(data) {
+			init(data);
+	//		dump(data);
+		});
+	});
+};
+
+var init = function(data) {
+	var s = makeJapanHTML();
+	get("japan").innerHTML += s;
+	
+//	dump(data);
+	
+	var defsel = 6; // 情報通信業
+	
+	var sel = create("select");
+	for (var i = 0; i < BIZTYPE.length; i++) {
+		var opt = create("option");
+		opt.value = i;
+		opt.textContent = BIZTYPE[i];
+		sel.appendChild(opt);
+	}
+	sel.value = defsel;
+	get("sels").appendChild(sel);
+	
+	sel.onchange = function() {
+//		alert(sel.value);
+		setData(data, sel.value);
+	};
+	
+	setData(data, sel.value);
+};
+var lastsel = 17;
+var setData = function(data, nbtype) {
+	var graphorg = "<a href=" + graph[2] + ">" + graph[0] + " by " + graph[1] + "</a>";
+	get("org").innerHTML = graphorg;
+
+	nbtype = parseInt(nbtype);
+//	var btype = "G";
+//	var nbtype = btype.charCodeAt(0) - "A".charCodeAt(0);
+	var btype = String.fromCharCode("A".charCodeAt(0) + nbtype);
+//	alert(btype + " " + nbtype + " " + "A".charCodeAt(0));
+
+	var getRatio = function(pref) {
+//		return rnd(BIZTYPE.length);
+		var sum = 0;
+		var target = 0;
+		for (var i = 0; i < data.length; i++) {
+			var d = data[i];
+			if (d.pref.value == pref) {
+				if (d.type.value == "A-S")
+					sum = parseInt(d.num.value);
+				else if (d.type.value == btype)
+					target = parseInt(d.num.value);
+			}
+		}
+		return target / sum;
+	};
+	var normalizeArray = function(ar) {
+		var min = 10000;
+		var max = -min;
+		for (var i = 0; i < ar.length; i++) {
+			var n = ar[i];
+			if (n < min)
+				min = n;
+			if (n > max)
+				max = n;
+		}
+		var res = [];
+		for (var i = 0; i < ar.length; i++) {
+			var n = ar[i];
+			res[i] = (n - min) / (max - min);
+		}
+		return res;
+	};
+	var ratios = [];
+	for (var i = 1; i <= 47; i++) {
+		var c = get("jp" + i);
+		c.num = i - 1;
+		var pref = PREF[i - 1];
+		ratios[i - 1] = getRatio(pref);
+	}
+	var ratios2 = normalizeArray(ratios);
+	
+//	dump(data);
+	for (var i = 1; i <= 47; i++) {
+		var c = get("jp" + i);
+		c.num = i - 1;
+		var pref = PREF[i - 1];
+		var n = ratios2[i - 1];
+//		c.textContent = n;
+		c.style.background = rgb2css(hsv2rgb(360 * nbtype / BIZTYPE.length, n, 1));
+		c.style.color = "black";
+		c.sel = function() {
+			lastsel = this.num;
+			var pref = PREF[this.num];
+			var s = pref + "の事業所<br>";
+			var num = 0;
+			for (var i = 0; i < ratios.length; i++) {
+				if (ratios[i] >= ratios[this.num])
+					num++;
+			}
+			s += BIZTYPE[nbtype] + "の割合 " + fixfloat(ratios[this.num] * 100, 2) + "% (全国" + num + "位)<br>";
+			s += "<br>";
+			var bizs = [];
+			for (var i = 0; i < data.length; i++) {
+				if (data[i].pref.value == pref) {
+					bizs.push(data[i]);
+				}
+			}
+			bizs.sort(function(a, b) {
+				return parseInt(b.num.value) - parseInt(a.num.value);
+			});
+			for (var i = 0; i < bizs.length; i++) {
+				var biz = bizs[i];
+				s += getBizType(biz.type.value) + ": " + addComma(biz.num.value) + "<br>";
+			}
+			s += graphorg + "<br>";
+			get("box").innerHTML = s;
+			
+			// from prefpopstat
+			var calcPop = function(data) {
+				var div = [ 0, 20, 40, 60 ];
+				var name = [ "20歳未満", "20-30代", "40-50代", "60歳以上" ];
+				var data2 = [];
+				for (var i = 0; i < div.length; i++) {
+					data2.push([ name[i], 0 ]);
+				}
+				for (var i = 1; i < data.length; i++) {
+					var d = data[i];
+					for (var j = div.length - 1; j >= 0; j--) {
+						if (d[0] > div[j]) {
+							data2[j][1] += parseInt(d[1]) + parseInt(d[2]);
+							break;
+						}
+					}
+				}
+				return data2;
+			};
+			
+			getPopLatestYear(pref, function(year, graph) {
+				getDetailGraph(graph, function(title, creator, url) {
+					getPop(pref, year, graph, function(data) {
+						var org = "<a href=" + url + ">" + title + "(" + year + "年) by " + creator + "</a><br>";
+						var data2 = calcPop(data);
+//						dump(data2);
+						var sum = 0;
+						for (var i = 0; i < data2.length; i++) {
+							sum += data2[i][1];
+						}
+						var s = "";
+						for (var i = 0; i < data2.length; i++) {
+							var d = data2[i];
+							s += d[0] + ": " + addComma(d[1]) + "人 (" + fixfloat(d[1] / sum * 100, 2) + "%)<br>";
+						}
+						s += org;
+						get("box").innerHTML += "<br>" + s;
+					});
+				});
+			});
+		};
+		c.onclick = function() {
+			this.sel();
+		};
+		if (c.num == lastsel)
+			c.sel();
+	}
+};
+
+// -- JAPAN --
+var PREF = [ "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県", "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県", "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県", "岐阜県", "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県", "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県", "山口県", "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県" ];
+
+var PREF_S = [ "北海道", "青森 ", "岩手 ", "宮城 ", "秋田 ", "山形 ", "福島 ", "茨城 ", "栃木 ", "群馬 ", "埼玉 ", "千葉 ", "東京", "神奈川 ", "新潟 ", "富山 ", "石川 ", "福井 ", "山梨 ", "長野 ", "岐阜 ", "静岡 ", "愛知 ", "三重 ", "滋賀 ", "京都", "大阪", "兵庫 ", "奈良 ", "和歌山 ", "鳥取 ", "島根 ", "岡山 ", "広島 ", "山口 ", "徳島 ", "香川 ", "愛媛 ", "高知 ", "福岡 ", "佐賀 ", "長崎 ", "熊本 ", "大分 ", "宮崎 ", "鹿児島 ", "沖縄 " ];
+
+var JAPAN = [
+	"          AAA",
+	"          AAA",
+	"          AAA",
+	"          BB ",
+	"          EC ",
+	"          FD ",
+	"       Q OOG ",
+	"       RPTJI ",
+	"  ifebZYUSKH ",
+	"ponhgacWVNML ",
+	"qr lk dX   L ",
+	"ts mj        ",
+	"u            "
+];
+
+var encbase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+var encbase62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+var to64 = function(n) {
+	return encbase64.charAt(n);
+};
+var from64 = function(c) {
+	return encbase64.indexOf(c);
+};
+var makeJapanHTML = function() {
+	var s = [];
+	s.push("<table id=jp0>");
+	for (var i = 0; i < JAPAN.length; i++) {
+		s.push("<tr>");
+		var jpn = JAPAN[i];
+		for (var j = 0; j < jpn.length; j++) {
+			var c = jpn.charAt(j);
+			var n = from64(c);
+			if (n < 0) {
+				s.push("<td></td>");
+			} else {
+				if (i > 0 && JAPAN[i - 1].charAt(j) == c)
+					continue;
+				var nc = 1;
+				for (; j < jpn.length - 1; j++, nc++)
+					if (c != jpn.charAt(j + 1))
+						break;
+				var nr = 1;
+				for (var k = i + 1; k < JAPAN.length; k++, nr++)
+					if (c != JAPAN[k].charAt(j))
+						break;
+				s.push("<td class=pref id=jp" + (n + 1) + " colspan=" + nc + " rowspan=" + nr + ">" + PREF_S[n] + "</td>");
+			}
+		}
+		s.push("</tr>");
+	}
+	s.push("</table>");
+	return s.join("");
+};
+
+</script>
+<style>
+body {
+	font-family:'Lucida Grande','Hiragino Kaku Gothic ProN','ヒラギノ角ゴ ProN W3',Meiryo,メイリオ,sans-serif;
+	text-align: center;
+	margin: 0px;
+}
+.list {
+	vertical-align: top;
+	margin: 4px 4px 4px 20px;
+	padding: .5em;
+	background: #fff;
+	display: inline-block;
+	width: 400px;
+	height: 340px;
+	overflow: auto;
+}
+.st {
+	display: block;
+	font-size: 200%;
+	font-weight: bold;
+	color: red;
+}
+.content {
+	xtext-align: left;
+}
+/* japan */
+#japan {
+	display: inline-block;
+	width: 420px;
+	height: 420px;
+	x-background: red;
+	position: relative;
+}
+#jp0 {
+}
+#jp0 td {
+	width: 26px;
+	height: 26px;
+	font-size: 10px;
+	vertical-align: middle;
+	text-align: center;
+	border: none;
+}
+#jp0 .pref {
+	border-radius: 4px;
+	border: 1px solid #333;
+	x-background: #faa;
+}
+#jp0 .prefsel {
+	border-radius: 4px;
+	x-background: #f88;
+}
+/* box */
+#box {
+	display: inline-block;
+	position: absolute;
+	top: 0px;
+	left: 0px;
+	width: 230px;
+	height: 120px;
+	x-background: #eee;
+	border: 1px solid #333;
+	border-radius: 4px;
+	padding: 10px;
+	text-align: left;
+	overflow: auto;
+	font-size: 80%;
+}
+#box a {
+	color: #f33 !important;
+}
+.content {
+	position: relative;
+	padding: 10px;
+	x-height: 380px;
+	x-background: #fee;
+}
+/* credit */
+.credit {
+	margin: 20px;
+	text-align: center;
+}
+.credit a {
+	color: gray !important;
+}
+#debug {
+	text-align: left;
+}
+textarea {
+	width: 90%;
+	height: 5em;
+}
+h1 a {
+	color: #000 !important;
+	text-decoration: none;
+}
+#tbl table {
+	border-collapse: collapse;
+	margin: 10px 5px;
+}
+#tbl th, #tbl td:nth-child(1), #tbl td:nth-child(3), #tbl td:nth-child(4) {
+	white-space: nowrap;
+}
+#tbl td:nth-child(5) {
+	text-align: center;
+}
+#tbl th, #tbl td {
+	border: 1px solid gray;
+}
+</style>
+</head>
+<body>
+
+<h1>県別いけてる事業マップ</h1>
+
+<div class="content">
+
+<div id="japan"><span id="box"></span></div>
+
+<div id="sels"></div>
+
+<div class=credit>
+DATA: CC BY <a href=http://sparql.odp.jig.jp/ target=_blank>odp SPARQL Endpoint</a><br>(<span id=org></span> / <a href=http://www.pref.fukui.jp/doc/toukei-jouhou/opendata/index.html>福井県オープンデータライブラリ</a>)<br>
+APP: CC BY <a href=http://fukuno.jig.jp/1150 target=_blank>福野泰介の一日一創</a><br>
+</div>
+
+</div>
+
+</body>
+</html>
